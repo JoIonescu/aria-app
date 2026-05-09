@@ -136,26 +136,27 @@ const RecordButton = ({ onCapture }) => {
   const [secs, setSecs] = useState(0);
   const timerRef = useRef(null); const recRef = useRef(null);
 
-  const start = useCallback(() => {
+  const toggle = useCallback(() => {
+    if (state === "recording") { recRef.current?.stop(); return; }
+    if (state === "processing") return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Voice not supported. Use Safari on iPhone."); return; }
-    const r = new SR(); r.lang = "en-US";
+    const r = new SR(); r.lang = "en-US"; r.continuous = false; r.interimResults = false;
     r.onstart = () => { setState("recording"); setSecs(0); timerRef.current = setInterval(() => setSecs(s => s+1), 1000); };
     r.onresult = (e) => { clearInterval(timerRef.current); setState("processing"); onCapture(e.results[0][0].transcript); setTimeout(() => setState("idle"), 800); };
-    r.onerror = () => { setState("idle"); clearInterval(timerRef.current); };
-    r.onend = () => { clearInterval(timerRef.current); if (state === "recording") setState("idle"); };
+    r.onerror = (e) => { console.log("mic error:", e.error); setState("idle"); clearInterval(timerRef.current); };
+    r.onend = () => { clearInterval(timerRef.current); setState(s => s === "recording" ? "idle" : s); };
     recRef.current = r; r.start();
   }, [state, onCapture]);
 
-  const stop = useCallback(() => { recRef.current?.stop(); }, []);
   useEffect(() => () => { clearInterval(timerRef.current); recRef.current?.stop(); }, []);
 
   const isRec = state === "recording"; const isProc = state === "processing";
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, position: "relative" }}>
       {isRec && [0,1].map(i => <div key={i} style={{ position: "absolute", inset: -2, borderRadius: "50%", background: C.accentG, animation: `pulse-ring 1.2s ease-out ${i*0.4}s infinite` }} />)}
-      <button onMouseDown={start} onMouseUp={stop} onTouchStart={start} onTouchEnd={stop}
-        style={{ width: 72, height: 72, borderRadius: "50%", border: "none", cursor: "pointer", background: isRec ? C.accent : isProc ? C.s2 : C.s2, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: isRec ? `0 0 0 4px ${C.accentG}, 0 8px 24px rgba(43,95,140,0.35)` : `0 0 0 1.5px ${C.border}, 0 4px 16px rgba(0,0,0,0.08)`, transition: "all 0.2s", animation: isRec ? "breath 1.5s ease-in-out infinite" : "none", outline: "none" }}>
+      <button onClick={toggle}
+        style={{ width: 72, height: 72, borderRadius: "50%", border: "none", cursor: "pointer", background: isRec ? C.accent : C.s2, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: isRec ? `0 0 0 4px ${C.accentG}, 0 8px 24px rgba(43,95,140,0.35)` : `0 0 0 1.5px ${C.border}, 0 4px 16px rgba(0,0,0,0.08)`, transition: "all 0.2s", animation: isRec ? "breath 1.5s ease-in-out infinite" : "none", outline: "none" }}>
         {isProc ? <ProcessingDots color={C.sub} /> : <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="13" rx="3" fill={isRec ? "#fff" : C.text}/><path d="M5 10a7 7 0 0 0 14 0" stroke={isRec ? "#fff" : C.sub} strokeWidth="1.5" strokeLinecap="round" fill="none"/><line x1="12" y1="19" x2="12" y2="22" stroke={isRec ? "#fff" : C.sub} strokeWidth="1.5" strokeLinecap="round"/><line x1="9" y1="22" x2="15" y2="22" stroke={isRec ? "#fff" : C.sub} strokeWidth="1.5" strokeLinecap="round"/></svg>}
       </button>
       <span style={{ fontFamily: F, fontSize: 11, color: isRec ? C.accent : C.dim }}>{isRec ? `${secs}s · tap to stop` : isProc ? "processing…" : "tap to speak"}</span>
