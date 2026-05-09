@@ -138,19 +138,36 @@ return (
 const RecordButton = ({ onCapture }) => {
 const [state, setState] = useState(“idle”);
 const [secs, setSecs] = useState(0);
-const timerRef = useRef(null); const recRef = useRef(null);
+const timerRef = useRef(null);
+const recRef = useRef(null);
+const gotResult = useRef(false);
 
 const toggle = useCallback(() => {
 if (state === “recording”) { recRef.current?.stop(); return; }
 if (state === “processing”) return;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) { alert(“Voice not supported. Use Safari on iPhone.”); return; }
-const r = new SR(); r.lang = “en-US”; r.continuous = false; r.interimResults = false;
+gotResult.current = false;
+const r = new SR();
+r.lang = “en-US”;
+r.continuous = true;
+r.interimResults = false;
 r.onstart = () => { setState(“recording”); setSecs(0); timerRef.current = setInterval(() => setSecs(s => s+1), 1000); };
-r.onresult = (e) => { clearInterval(timerRef.current); setState(“processing”); onCapture(e.results[0][0].transcript); setTimeout(() => setState(“idle”), 800); };
-r.onerror = (e) => { console.log(“mic error:”, e.error); setState(“idle”); clearInterval(timerRef.current); };
+r.onresult = (e) => {
+const text = Array.from(e.results).map(r => r[0].transcript).join(” “).trim();
+if (text) {
+gotResult.current = true;
+clearInterval(timerRef.current);
+setState(“processing”);
+r.stop();
+onCapture(text);
+setTimeout(() => setState(“idle”), 800);
+}
+};
+r.onerror = (e) => { console.log(“mic error:”, e.error); clearInterval(timerRef.current); setState(“idle”); };
 r.onend = () => { clearInterval(timerRef.current); setState(s => s === “recording” ? “idle” : s); };
-recRef.current = r; r.start();
+recRef.current = r;
+r.start();
 }, [state, onCapture]);
 
 useEffect(() => () => { clearInterval(timerRef.current); recRef.current?.stop(); }, []);
