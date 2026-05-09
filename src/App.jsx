@@ -221,8 +221,11 @@ useEffect(() => { setTimeout(() => ref.current?.focus(), 150); }, []);
 return (
 <BottomSheet onClose={onClose}>
 <div style={{ padding: “16px 20px 32px” }}>
-<div style={{ fontFamily: F, fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>Drop a note</div>
-<div style={{ fontFamily: F, fontSize: 13, color: C.sub, marginBottom: 14 }}>Type anything — ARIA will analyze and propose.</div>
+<div style={{ fontFamily: F, fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>What’s on your mind?</div>
+<div style={{ display: “flex”, alignItems: “center”, gap: 8, background: C.accentL, border: `1px solid ${C.accent}33`, borderRadius: 8, padding: “8px 12px”, marginBottom: 14 }}>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="13" rx="3" fill={C.accent}/><path d="M5 10a7 7 0 0 0 14 0" stroke={C.accent} strokeWidth="1.5" fill="none"/></svg>
+<span style={{ fontFamily: F, fontSize: 12, color: C.accent }}>Tap the <strong>🎤 mic</strong> on your keyboard to speak instead of typing</span>
+</div>
 <textarea ref={ref} value={text} onChange={e => setText(e.target.value)} placeholder=“What’s on your mind…” rows={4}
 style={{ width: “100%”, background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 10, padding: “12px 14px”, fontFamily: F, fontSize: 14, color: C.text, resize: “none”, lineHeight: 1.6, marginBottom: 12 }} />
 <div style={{ display: “flex”, gap: 8 }}>
@@ -689,21 +692,11 @@ return (
   </div>
 
   {/* Text capture FAB */}
-  {!showRecorder && !showTextCapture && !editingCapture && (
+  {!showTextCapture && !editingCapture && (
     <button onClick={() => setShowTextCapture(true)} className="btn-press"
       style={{ position: "absolute", bottom: 128, right: 18, width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.borderL}`, background: C.s1, boxShadow: `0 2px 12px rgba(0,0,0,0.1)`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 30, animation: "fab-pop 0.3s cubic-bezier(0.34,1.56,0.64,1)" }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.sub} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.sub} strokeWidth="1.5" strokeLinecap="round"/></svg>
     </button>
-  )}
-
-  {/* Record overlay */}
-  {showRecorder && (
-    <div style={{ position: "absolute", inset: 0, background: "rgba(18,37,58,0.80)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 28, zIndex: 50, backdropFilter: "blur(8px)", animation: "fadeUp 0.2s ease" }}
-      onClick={e => { if (e.target === e.currentTarget) setShowRecorder(false); }}>
-      <div style={{ fontFamily: F, fontSize: 22, fontWeight: 700, color: "#EDF2F7", textAlign: "center" }}>What's on your mind?</div>
-      <RecordButton onCapture={(text) => addCapture(text, "voice")} />
-      <button onClick={() => setShowRecorder(false)} style={{ fontFamily: F, fontSize: 13, color: "#A0B8CC", background: "none", border: "none", cursor: "pointer" }}>cancel</button>
-    </div>
   )}
 
   {/* Text capture modal */}
@@ -715,7 +708,7 @@ return (
   {/* Bottom nav */}
   <div style={{ background: C.s1, borderTop: `1px solid ${C.border}`, flexShrink: 0, paddingBottom: 28 }}>
     <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 8px" }}>
-      <button onClick={() => setShowRecorder(true)} className="btn-press"
+      <button onClick={() => setShowTextCapture(true)} className="btn-press"
         style={{ width: 54, height: 54, borderRadius: "50%", border: "none", background: C.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${C.accentL}, 0 4px 20px rgba(43,95,140,0.35)`, outline: "none" }}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="13" rx="3" fill="#fff"/><path d="M5 10a7 7 0 0 0 14 0" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" fill="none"/><line x1="12" y1="19" x2="12" y2="22" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/><line x1="9" y1="22" x2="15" y2="22" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>
       </button>
