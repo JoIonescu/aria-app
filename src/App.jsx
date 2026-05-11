@@ -594,8 +594,8 @@ export default function App() {
     try {
       const raw = await askClaude(
         `You are ARIA. The user captured a note. Analyze it and respond ONLY with JSON (no markdown):
-{ "title": "short action title max 6 words", "body": "one sentence proposal", "type": "task|reminder|calendar|insight", "action": "short button label", "tags": ["tag1"] }
-Types: task=action needed, reminder=time-based, calendar=event/meeting, insight=idea/reflection`,
+{ "title": "short action title max 6 words", "body": "one sentence proposal", "type": "task|reminder|calendar|insight", "action": "short button label", "tags": ["tag1"], "due": "extracted date/time as plain English e.g. tomorrow 9:00 AM, Friday 3:00 PM, or null if not mentioned" }
+Types: task=action needed, reminder=time-based alert needed, calendar=event/meeting, insight=idea/reflection`,
         text
       );
       const p = JSON.parse(raw);
@@ -606,7 +606,7 @@ Types: task=action needed, reminder=time-based, calendar=event/meeting, insight=
         insight: { color: C.purple, colorL: C.purpleL, icon: "◇" },
       };
       const s = colorMap[p.type] || colorMap.insight;
-      setProposals(prev => [{ id: Date.now(), ...s, title: p.title, body: p.body, type: p.type, action: p.action, time: "Just now", sourceId: captureId }, ...prev]);
+      setProposals(prev => [{ id: Date.now(), ...s, title: p.title, body: p.body, type: p.type, action: p.action, due: p.due || null, time: "Just now", sourceId: captureId }, ...prev]);
       setCaptures(prev => prev.map(c => c.id === captureId ? { ...c, tags: p.tags || [] } : c));
     } catch { /* silent fail */ }
   }, []);
@@ -632,14 +632,24 @@ Types: task=action needed, reminder=time-based, calendar=event/meeting, insight=
   // ── Approve proposal ──
   const approveProposal = useCallback((proposal) => {
     setProposals(prev => prev.filter(p => p.id !== proposal.id));
-    if (proposal.type === "calendar") {
-      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: "Scheduled", badge: "Soon", urgency: C.blue }, ...prev]);
-      setTab("upcoming");
-    } else {
-      const rawTitle = proposal.title;
-      setTasks(prev => [{ id: Date.now(), title: rawTitle, cat: proposal.type === "health" ? "Health" : proposal.type === "personal" ? "Personal" : "Work", priority: "medium", due: "This week", done: false }, ...prev]);
-      setTab("tasks");
+
+    if (proposal.type === "reminder") {
+      // Open ARIA Reminder shortcut with title and due time
+      const title = encodeURIComponent(proposal.title);
+      const time = encodeURIComponent(proposal.due || "tomorrow 9:00 AM");
+      window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}%20|%20${time}`;
+      return;
     }
+
+    if (proposal.type === "calendar") {
+      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: proposal.due || "Scheduled", badge: "Soon", urgency: C.blue }, ...prev]);
+      setTab("upcoming");
+      return;
+    }
+
+    // task / insight / default → add to tasks
+    setTasks(prev => [{ id: Date.now(), title: proposal.title, cat: proposal.type === "health" ? "Health" : proposal.type === "personal" ? "Personal" : "Work", priority: "medium", due: "This week", done: false }, ...prev]);
+    setTab("tasks");
   }, []);
 
   const dismissProposal = useCallback((id) => setProposals(prev => prev.filter(p => p.id !== id)), []);
