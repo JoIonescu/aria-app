@@ -636,8 +636,7 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     if (proposal.type === "reminder") {
       // Open ARIA Reminder shortcut with title and due time
       const title = encodeURIComponent(proposal.title);
-      const time = encodeURIComponent(proposal.due || "tomorrow 9:00 AM");
-      window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}%20|%20${time}`;
+      window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
       return;
     }
 
