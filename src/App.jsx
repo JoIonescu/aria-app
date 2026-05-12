@@ -634,9 +634,14 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     setProposals(prev => prev.filter(p => p.id !== proposal.id));
 
     if (proposal.type === "reminder") {
-      // Open ARIA Reminder shortcut with title and due time
-      const title = encodeURIComponent(proposal.title);
-      window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
+      // Add to upcoming in ARIA so it's visible
+      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green }, ...prev]);
+      setTab("upcoming");
+      // Open Shortcut to create real iOS reminder
+      setTimeout(() => {
+        const title = encodeURIComponent(proposal.title);
+        window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
+      }, 500);
       return;
     }
 
