@@ -64,7 +64,9 @@ const ProcessingDots = ({ color = C.dim }) => (
 const EmptyState = ({ icon, text }) => (
   <div style={{ padding: "60px 20px", textAlign: "center" }}>
     <div style={{ fontSize: 28, marginBottom: 12 }}>{icon}</div>
-    <div style={{ fontFamily: F, fontSize: 14, color: C.dim, lineHeight: 1.6 }}>{text}</div>
+    {text.split("\\n").map((line, i) => (
+      <div key={i} style={{ fontFamily: F, fontSize: 14, color: C.dim, lineHeight: 1.8 }}>{line}</div>
+    ))}
   </div>
 );
 
@@ -632,9 +634,10 @@ export default function App() {
   );
 
   const handleDone = useCallback((id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
     setUpcoming(prev => prev.filter(u => u.id !== id));
     setSnoozed(prev => prev.filter(s => s !== id));
-  }, [setUpcoming, setSnoozed]);
+  }, [setTasks, setUpcoming, setSnoozed]);
 
   const handleSnooze = useCallback((id) => {
     setSnoozed(prev => [...prev, id]);
@@ -685,13 +688,15 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     setProposals(prev => prev.filter(p => p.id !== proposal.id));
 
     if (proposal.type === "reminder") {
-      // Add to upcoming in ARIA so it's visible
-      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green, isReminder: true, createdAt: Date.now() }, ...prev]);
-      setTab("upcoming");
-      // Open Shortcut to create real iOS reminder
+      const taskId = Date.now();
+      // Add as task
+      setTasks(prev => [{ id: taskId, title: proposal.title, cat: "Work", priority: "high", due: "Reminder set", done: false }, ...prev]);
+      // Add to upcoming for tracking
+      setUpcoming(prev => [{ id: taskId, title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green, isReminder: true, createdAt: Date.now() }, ...prev]);
+      setTab("tasks");
+      // Open Shortcut
       setTimeout(() => {
         const title = encodeURIComponent(proposal.title.trim());
-        console.log("Opening shortcut with title:", proposal.title);
         window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
       }, 500);
       return;
