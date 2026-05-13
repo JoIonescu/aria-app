@@ -615,30 +615,30 @@ export default function App() {
   const [proposals, setProposalsRaw] = useState(() => load("aria_proposals", []));
   const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
   const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
+  const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
   const [showRecorder, setShowRecorder] = useState(false);
   const [showTextCapture, setShowTextCapture] = useState(false);
   const [editingCapture, setEditingCapture] = useState(null);
-  const [snoozed, setSnoozed] = useState(() => load("aria_snoozed", []));
-
-  // Items to check completion — reminders created more than 30 min ago
-  const completionItems = upcoming.filter(u =>
-    u.isReminder && u.createdAt && !snoozed.includes(u.id) &&
-    (Date.now() - u.createdAt) > 30 * 60 * 1000
-  );
-
-  const handleDone = useCallback((id) => {
-    setUpcoming(prev => prev.filter(u => u.id !== id));
-    setSnoozed(prev => { const n = prev.filter(s => s !== id); save("aria_snoozed", n); return n; });
-  }, [setUpcoming]);
-
-  const handleSnooze = useCallback((id) => {
-    setSnoozed(prev => { const n = [...prev, id]; save("aria_snoozed", n); return n; });
-  }, []);
 
   const setTasks = useCallback((v) => { setTasksRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_tasks", n); return n; }); }, []);
   const setProposals = useCallback((v) => { setProposalsRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_proposals", n); return n; }); }, []);
   const setCaptures = useCallback((v) => { setCapturesRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_captures", n); return n; }); }, []);
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
+  const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
+
+  const completionItems = (upcoming || []).filter(u =>
+    u && u.isReminder && u.createdAt && !(snoozed || []).includes(u.id) &&
+    (Date.now() - u.createdAt) > 30 * 60 * 1000
+  );
+
+  const handleDone = useCallback((id) => {
+    setUpcoming(prev => prev.filter(u => u.id !== id));
+    setSnoozed(prev => prev.filter(s => s !== id));
+  }, [setUpcoming, setSnoozed]);
+
+  const handleSnooze = useCallback((id) => {
+    setSnoozed(prev => [...prev, id]);
+  }, [setSnoozed]);
 
   // ── Analyze capture with Claude ──
   const analyzeCapture = useCallback(async (captureId, text) => {
