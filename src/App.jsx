@@ -357,8 +357,33 @@ const ProposalCard = ({ p, onApprove, onDismiss }) => (
   </div>
 );
 
-// ── Tab: Home ─────────────────────────────────────────────────────────────────
-const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss }) => {
+// ── Completion Banner ─────────────────────────────────────────────────────────
+const CompletionBanner = ({ items, onDone, onSnooze }) => {
+  if (!items.length) return null;
+  return (
+    <div style={{ margin: "12px 16px 0", borderRadius: 12, background: C.greenL, border: `1px solid ${C.green}33`, borderLeft: `4px solid ${C.green}`, overflow: "hidden" }}>
+      <div style={{ padding: "12px 14px 8px" }}>
+        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 700, color: C.green, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>⏰ Did you complete these?</div>
+        {items.map(item => (
+          <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
+            <span style={{ fontFamily: F, fontSize: 13, color: C.text, flex: 1 }}>{item.title}</span>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => onSnooze(item.id)}
+                style={{ padding: "4px 10px", background: C.s2, border: `1px solid ${C.border}`, borderRadius: 6, fontFamily: F, fontSize: 11, color: C.dim, cursor: "pointer" }}>
+                not yet
+              </button>
+              <button onClick={() => onDone(item.id)}
+                style={{ padding: "4px 10px", background: C.green, border: "none", borderRadius: 6, fontFamily: F, fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+                done ✓
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss, completionItems, onDone, onSnooze }) => {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const pendingTasks = tasks.filter(t => !t.done).length;
@@ -373,6 +398,8 @@ const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss })
         <div style={{ fontFamily: F, fontSize: 28, fontWeight: 800, color: C.text, lineHeight: 1.15 }}>{greeting}.</div>
         <div style={{ fontFamily: F, fontSize: 13, color: C.sub, marginTop: 6 }}>{pendingTasks} tasks open · {proposals.length} proposals waiting</div>
       </div>
+
+      <CompletionBanner items={completionItems || []} onDone={onDone} onSnooze={onSnooze} />
 
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 1, background: C.border, borderBottom: `1px solid ${C.border}` }}>
@@ -579,15 +606,39 @@ const NAV = [
 ];
 
 // ── Root App ──────────────────────────────────────────────────────────────────
+const load = (key, fallback) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
+const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
+
 export default function App() {
   const [tab, setTab] = useState("home");
-  const [tasks, setTasks] = useState([]);
-  const [proposals, setProposals] = useState([]);
-  const [captures, setCaptures] = useState([]);
-  const [upcoming, setUpcoming] = useState([]);
+  const [tasks, setTasksRaw] = useState(() => load("aria_tasks", []));
+  const [proposals, setProposalsRaw] = useState(() => load("aria_proposals", []));
+  const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
+  const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
   const [showRecorder, setShowRecorder] = useState(false);
   const [showTextCapture, setShowTextCapture] = useState(false);
   const [editingCapture, setEditingCapture] = useState(null);
+  const [snoozed, setSnoozed] = useState(() => load("aria_snoozed", []));
+
+  // Items to check completion — reminders created more than 30 min ago
+  const completionItems = upcoming.filter(u =>
+    u.isReminder && u.createdAt && !snoozed.includes(u.id) &&
+    (Date.now() - u.createdAt) > 30 * 60 * 1000
+  );
+
+  const handleDone = useCallback((id) => {
+    setUpcoming(prev => prev.filter(u => u.id !== id));
+    setSnoozed(prev => { const n = prev.filter(s => s !== id); save("aria_snoozed", n); return n; });
+  }, [setUpcoming]);
+
+  const handleSnooze = useCallback((id) => {
+    setSnoozed(prev => { const n = [...prev, id]; save("aria_snoozed", n); return n; });
+  }, []);
+
+  const setTasks = useCallback((v) => { setTasksRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_tasks", n); return n; }); }, []);
+  const setProposals = useCallback((v) => { setProposalsRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_proposals", n); return n; }); }, []);
+  const setCaptures = useCallback((v) => { setCapturesRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_captures", n); return n; }); }, []);
+  const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
 
   // ── Analyze capture with Claude ──
   const analyzeCapture = useCallback(async (captureId, text) => {
@@ -635,11 +686,12 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
 
     if (proposal.type === "reminder") {
       // Add to upcoming in ARIA so it's visible
-      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green }, ...prev]);
+      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green, isReminder: true, createdAt: Date.now() }, ...prev]);
       setTab("upcoming");
       // Open Shortcut to create real iOS reminder
       setTimeout(() => {
-        const title = encodeURIComponent(proposal.title);
+        const title = encodeURIComponent(proposal.title.trim());
+        console.log("Opening shortcut with title:", proposal.title);
         window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
       }, 500);
       return;
@@ -673,7 +725,7 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-        {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} onApprove={approveProposal} onDismiss={dismissProposal} />}
+        {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} onApprove={approveProposal} onDismiss={dismissProposal} completionItems={completionItems} onDone={handleDone} onSnooze={handleSnooze} />}
         {tab === "captures"  && <CapturesTab captures={captures} onDelete={deleteCapture} onEdit={setEditingCapture} />}
         {tab === "tasks"     && <TasksTab tasks={tasks} setTasks={setTasks} />}
         {tab === "proposals" && <ProposalsTab proposals={proposals} onApprove={approveProposal} onDismiss={dismissProposal} />}
