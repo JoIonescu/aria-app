@@ -708,6 +708,12 @@ export default function App() {
         save("aria_google_token", token);
         setGoogleToken(token);
         window.history.replaceState(null, "", window.location.pathname);
+        // Restore pending calendar proposal
+        const pending = load("aria_pending_calendar", null);
+        if (pending) {
+          setCalendarProposal(pending);
+          save("aria_pending_calendar", null);
+        }
       }
     }
   }, []);
@@ -814,11 +820,10 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
 
     if (proposal.type === "calendar") {
       if (!googleToken) {
-        // Redirect to Google OAuth
+        save("aria_pending_calendar", proposal);
         window.location.href = getGoogleAuthUrl();
         return;
       }
-      // Show event creation modal
       setCalendarProposal(proposal);
       return;
     }
@@ -863,9 +868,12 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
           googleToken={googleToken}
           onClose={() => setCalendarProposal(null)}
           onCreated={() => {
+            const id = Date.now();
             setProposals(prev => prev.filter(p => p.id !== calendarProposal.id));
-            setUpcoming(prev => [{ id: Date.now(), title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue }, ...prev]);
-            setTab("upcoming");
+            setTasks(prev => [{ id, title: calendarProposal.title, cat: "Work", priority: "medium", due: "Scheduled", done: false }, ...prev]);
+            setUpcoming(prev => [{ id, title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue }, ...prev]);
+            setCalendarProposal(null);
+            setTab("tasks");
           }}
         />
       )}
