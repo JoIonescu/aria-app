@@ -696,6 +696,7 @@ export default function App() {
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
   const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
   const [calendarProposal, setCalendarProposal] = useState(null);
+  const [showRecorder, setShowRecorder] = useState(false);
 
   // Detect Google OAuth token on redirect back
   useEffect(() => {
