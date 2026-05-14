@@ -33,6 +33,30 @@ const C = {
 const F = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 const PRI = { high: "#7A2E1E", medium: "#2B5F8C", low: "#7A95A8" };
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events";
+
+// ── Google Calendar helpers ───────────────────────────────────────────────────
+const getGoogleAuthUrl = () => {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: window.location.origin,
+    response_type: "token",
+    scope: GOOGLE_SCOPES,
+    prompt: "consent",
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+};
+
+const createGCalEvent = async (token, title, start, end) => {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ summary: title, start: { dateTime: start, timeZone: tz }, end: { dateTime: end, timeZone: tz } }),
+  });
+  return res.json();
+};
 
 // ── Claude API helper ─────────────────────────────────────────────────────────
 const askClaude = async (system, userMsg) => {
@@ -367,6 +391,48 @@ const ProposalCard = ({ p, onApprove, onDismiss }) => (
   </div>
 );
 
+// ── Create Google Calendar Event Modal ───────────────────────────────────────
+const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);
+  const tomorrowEnd = new Date(tomorrow); tomorrowEnd.setHours(10, 0, 0, 0);
+  const fmt = (d) => d.toISOString().slice(0, 16);
+
+  const [start, setStart] = useState(fmt(tomorrow));
+  const [end, setEnd] = useState(fmt(tomorrowEnd));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const create = async () => {
+    setLoading(true); setError("");
+    try {
+      await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
+      onCreated();
+      onClose();
+    } catch { setError("Failed to create event. Try again."); }
+    setLoading(false);
+  };
+
+  return (
+    <BottomSheet onClose={onClose}>
+      <div style={{ padding: "16px 20px 32px" }}>
+        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 4 }}>Add to Google Calendar</div>
+        <div style={{ fontFamily: F, fontSize: 13, color: C.sub, marginBottom: 16 }}>{proposal.title}</div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Start</div>
+        <input type="datetime-local" value={start} onChange={e => setStart(e.target.value)}
+          style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 12 }} />
+        <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>End</div>
+        <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)}
+          style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
+        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12 }}>{error}</div>}
+        <button onClick={create} disabled={loading}
+          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+          {loading ? "Creating…" : "Add to Google Calendar →"}
+        </button>
+      </div>
+    </BottomSheet>
+  );
+};
+
 // ── Completion Banner ─────────────────────────────────────────────────────────
 const CompletionBanner = ({ items, onDone, onSnooze }) => {
   if (!items.length) return null;
@@ -628,7 +694,22 @@ export default function App() {
   const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
   const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
-  const [showRecorder, setShowRecorder] = useState(false);
+  const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
+  const [calendarProposal, setCalendarProposal] = useState(null);
+
+  // Detect Google OAuth token on redirect back
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes("access_token=")) {
+      const params = new URLSearchParams(hash.replace("#", "?"));
+      const token = params.get("access_token");
+      if (token) {
+        save("aria_google_token", token);
+        setGoogleToken(token);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, []);
   const [showTextCapture, setShowTextCapture] = useState(false);
   const [editingCapture, setEditingCapture] = useState(null);
 
@@ -638,10 +719,25 @@ export default function App() {
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
   const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
 
-  const completionItems = (upcoming || []).filter(u =>
-    u && u.isReminder && u.createdAt && !(snoozed || []).includes(u.id) &&
-    (Date.now() - u.createdAt) > 30 * 60 * 1000
-  );
+  const getBannerSessionKey = (id) => {
+    const h = new Date().getHours();
+    const period = h < 12 ? "morning" : "evening";
+    return `${new Date().toDateString()}_${period}_${id}`;
+  };
+
+  const completionItems = (upcoming || []).filter(u => {
+    if (!u || !u.isReminder || !u.createdAt) return false;
+    const now = Date.now();
+    const age = now - u.createdAt;
+    const sessionKey = getBannerSessionKey(u.id);
+    const shownThisSession = load(`aria_banner_${u.id}`, "");
+    if (shownThisSession === sessionKey) return false; // already shown this session
+    const creationDay = new Date(u.createdAt).toDateString();
+    const today = new Date().toDateString();
+    if (creationDay === today) return age >= 60 * 60 * 1000; // day 1: show after 1h
+    const h = new Date().getHours();
+    return (h >= 6 && h < 12) || (h >= 17 && h < 22); // other days: morning or evening
+  });
 
   const handleDone = useCallback((id) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
@@ -650,7 +746,10 @@ export default function App() {
   }, [setTasks, setUpcoming, setSnoozed]);
 
   const handleSnooze = useCallback((id) => {
+    const sessionKey = getBannerSessionKey(id);
+    save(`aria_banner_${id}`, sessionKey);
     setSnoozed(prev => [...prev, id]);
+    setTimeout(() => setSnoozed(prev => prev.filter(s => s !== id)), 100);
   }, [setSnoozed]);
 
   // ── Analyze capture with Claude ──
@@ -713,8 +812,13 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     }
 
     if (proposal.type === "calendar") {
-      setUpcoming(prev => [{ id: Date.now(), title: proposal.title, detail: proposal.due || "Scheduled", badge: "Soon", urgency: C.blue }, ...prev]);
-      setTab("upcoming");
+      if (!googleToken) {
+        // Redirect to Google OAuth
+        window.location.href = getGoogleAuthUrl();
+        return;
+      }
+      // Show event creation modal
+      setCalendarProposal(proposal);
       return;
     }
 
@@ -735,7 +839,10 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
       <div style={{ padding: "12px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</div>
         <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: C.accent, letterSpacing: "0.06em" }}>ARIA</div>
-        <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.green, marginRight: 5, verticalAlign: "middle" }} />active</div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>
+          <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: googleToken ? C.green : C.dim, marginRight: 5, verticalAlign: "middle" }} />
+          {googleToken ? "active" : "active"}
+        </div>
       </div>
 
       {/* Content */}
@@ -748,6 +855,20 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
       </div>
 
       {/* Text capture FAB */}
+      {/* Google Calendar Event Modal */}
+      {calendarProposal && googleToken && (
+        <CreateEventModal
+          proposal={calendarProposal}
+          googleToken={googleToken}
+          onClose={() => setCalendarProposal(null)}
+          onCreated={() => {
+            setProposals(prev => prev.filter(p => p.id !== calendarProposal.id));
+            setUpcoming(prev => [{ id: Date.now(), title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue }, ...prev]);
+            setTab("upcoming");
+          }}
+        />
+      )}
+
       {/* Text capture modal */}
       {showTextCapture && <TextCaptureModal onClose={() => setShowTextCapture(false)} onSubmit={(text) => addCapture(text, "text")} />}
 
