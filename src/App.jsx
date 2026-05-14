@@ -261,12 +261,20 @@ const EditTaskModal = ({ task, onSave, onClose }) => {
     setLoading(true);
     try {
       const raw = await askClaude(
-        `You are ARIA helping edit a task. Current: ${JSON.stringify(edited)}. Respond ONLY with JSON: { "updatedTask": {id,title,cat,priority,due,done}, "reply": "one sentence confirmation" }`,
+        `You are ARIA helping edit a task. Current: ${JSON.stringify(edited)}. Respond ONLY with JSON: { "updatedTask": {id,title,cat,priority,due,done}, "reply": "one sentence confirmation", "setReminder": true/false }
+Set setReminder to true if the user is asking to set a reminder or alert for this task.`,
         userMsg
       );
       const parsed = JSON.parse(raw);
       setEdited(parsed.updatedTask);
       setMessages(prev => [...prev, { role: "assistant", text: parsed.reply }]);
+      // If reminder requested, open Shortcut
+      if (parsed.setReminder) {
+        setTimeout(() => {
+          const title = encodeURIComponent(parsed.updatedTask.title.trim());
+          window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
+        }, 800);
+      }
     } catch { setMessages(prev => [...prev, { role: "assistant", text: "Sorry, try again." }]); }
     setLoading(false);
   };
@@ -525,20 +533,22 @@ const TasksTab = ({ tasks, setTasks }) => {
                 <SectionLabel label={cat} count={`${ct.filter(t=>t.done).length}/${ct.length}`} />
                 {ct.map((t, i) => (
                   <div key={t.id}>
-                    <div style={{ padding: "13px 20px", display: "flex", gap: 12, alignItems: "center", background: C.s1, opacity: t.done ? 0.45 : 1, transition: "opacity 0.2s" }}>
-                      <div onClick={() => setTasks(prev => prev.map(p => p.id === t.id ? {...p, done: !p.done} : p))}
-                        style={{ width: 20, height: 20, borderRadius: 5, border: `1.5px solid ${t.done ? C.green : C.borderL}`, background: t.done ? C.greenL : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.2s" }}>
-                        {t.done && <svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l2.5 2.5L9 1" stroke={C.green} strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>}
+                    <SwipeableRow onDelete={() => setTasks(prev => prev.filter(p => p.id !== t.id))}>
+                      <div style={{ padding: "13px 20px", display: "flex", gap: 12, alignItems: "center", background: C.s1, opacity: t.done ? 0.45 : 1, transition: "opacity 0.2s" }}>
+                        <div onClick={() => setTasks(prev => prev.map(p => p.id === t.id ? {...p, done: !p.done} : p))}
+                          style={{ width: 20, height: 20, borderRadius: 5, border: `1.5px solid ${t.done ? C.green : C.borderL}`, background: t.done ? C.greenL : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.2s" }}>
+                          {t.done && <svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l2.5 2.5L9 1" stroke={C.green} strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: F, fontSize: 13, fontWeight: 600, color: C.text, textDecoration: t.done ? "line-through" : "none" }}>{truncate(t.title)}</div>
+                          <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 2 }}>{t.cat} · Due {t.due}</div>
+                        </div>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: PRI[t.priority], flexShrink: 0 }} />
+                        {!t.done && <button onClick={() => setEditingTask(t)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/></svg>
+                        </button>}
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontFamily: F, fontSize: 13, fontWeight: 600, color: C.text, textDecoration: t.done ? "line-through" : "none" }}>{truncate(t.title)}</div>
-                        <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 2 }}>{t.cat} · Due {t.due}</div>
-                      </div>
-                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: PRI[t.priority], flexShrink: 0 }} />
-                      {!t.done && <button onClick={() => setEditingTask(t)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/></svg>
-                      </button>}
-                    </div>
+                    </SwipeableRow>
                     {i < ct.length - 1 && <Divider />}
                   </div>
                 ))}
@@ -738,13 +748,6 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
       </div>
 
       {/* Text capture FAB */}
-      {!showTextCapture && !editingCapture && (
-        <button onClick={() => setShowTextCapture(true)} className="btn-press"
-          style={{ position: "absolute", bottom: 128, right: 18, width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.borderL}`, background: C.s1, boxShadow: `0 2px 12px rgba(0,0,0,0.1)`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 30, animation: "fab-pop 0.3s cubic-bezier(0.34,1.56,0.64,1)" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.sub} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.sub} strokeWidth="1.5" strokeLinecap="round"/></svg>
-        </button>
-      )}
-
       {/* Text capture modal */}
       {showTextCapture && <TextCaptureModal onClose={() => setShowTextCapture(false)} onSubmit={(text) => addCapture(text, "text")} />}
 
@@ -756,7 +759,10 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
         <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 8px" }}>
           <button onClick={() => setShowTextCapture(true)} className="btn-press"
             style={{ width: 54, height: 54, borderRadius: "50%", border: "none", background: C.accent, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 0 4px ${C.accentL}, 0 4px 20px rgba(43,95,140,0.35)`, outline: "none" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="13" rx="3" fill="#fff"/><path d="M5 10a7 7 0 0 0 14 0" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" fill="none"/><line x1="12" y1="19" x2="12" y2="22" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/><line x1="9" y1="22" x2="15" y2="22" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </button>
         </div>
         <div style={{ display: "flex", justifyContent: "space-around" }}>
