@@ -478,10 +478,15 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const create = async () => {
     setLoading(true); setError("");
     try {
-      await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
+      const result = await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
+      if (result.error) {
+        setError(`Google error: ${result.error.message}`);
+        if (result.error.code === 401) { save("aria_google_token", null); setError("Session expired. Please reconnect Google Calendar."); }
+        setLoading(false); return;
+      }
       onCreated();
       onClose();
-    } catch { setError("Failed to create event. Try again."); }
+    } catch (e) { setError(`Failed: ${e.message}`); }
     setLoading(false);
   };
 
