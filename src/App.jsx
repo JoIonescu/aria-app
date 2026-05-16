@@ -34,7 +34,7 @@ const F = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Ari
 const PRI = { high: "#7A2E1E", medium: "#2B5F8C", low: "#7A95A8" };
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events";
+const GOOGLE_SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks";
 
 // ── Google Calendar helpers ───────────────────────────────────────────────────
 const getGoogleAuthUrl = () => {
@@ -48,17 +48,51 @@ const getGoogleAuthUrl = () => {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 };
 
-const createGCalEvent = async (token, title, start, end) => {
+const createGCalEvent = async (token, title, start, end, isReminder = false) => {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const body = {
+    summary: title,
+    start: { dateTime: start, timeZone: tz },
+    end: { dateTime: end, timeZone: tz },
+    reminders: isReminder
+      ? { useDefault: false, overrides: [{ method: "popup", minutes: 0 }] }
+      : { useDefault: true },
+  };
   const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ summary: title, start: { dateTime: start, timeZone: tz }, end: { dateTime: end, timeZone: tz } }),
+    body: JSON.stringify(body),
   });
   return res.json();
 };
 
-// ── Claude API helper ─────────────────────────────────────────────────────────
+// ── Google Tasks helpers ──────────────────────────────────────────────────────
+const createGTask = async (token, title) => {
+  const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (res.status === 401) { save("aria_google_token", null); return {}; }
+  return res.json();
+};
+
+const completeGTask = async (token, taskId) => {
+  const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "completed" }),
+  });
+  if (res.status === 401) save("aria_google_token", null);
+};
+
+const fetchGTasks = async (token) => {
+  const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=100", {
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+  if (res.status === 401) { save("aria_google_token", null); return {}; }
+  return res.json();
+};
 const askClaude = async (system, userMsg) => {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -391,6 +425,45 @@ const ProposalCard = ({ p, onApprove, onDismiss }) => (
   </div>
 );
 
+// ── Create Google Calendar Reminder Modal ─────────────────────────────────────
+const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
+  const def = new Date(); def.setHours(def.getHours() + 1, 0, 0, 0);
+  const fmt = (d) => d.toISOString().slice(0, 16);
+  const [when, setWhen] = useState(fmt(def));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const create = async () => {
+    setLoading(true); setError("");
+    try {
+      const start = new Date(when).toISOString();
+      const end = new Date(new Date(when).getTime() + 30 * 60 * 1000).toISOString();
+      await createGCalEvent(googleToken, proposal.title, start, end, true);
+      onCreated();
+      onClose();
+    } catch { setError("Failed to create reminder. Try again."); }
+    setLoading(false);
+  };
+
+  return (
+    <BottomSheet onClose={onClose}>
+      <div style={{ padding: "16px 20px 32px" }}>
+        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 4 }}>Set Reminder</div>
+        <div style={{ fontFamily: F, fontSize: 13, color: C.sub, marginBottom: 4 }}>{proposal.title}</div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 16 }}>You'll get a Google Calendar notification at this time.</div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>When?</div>
+        <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)}
+          style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
+        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12 }}>{error}</div>}
+        <button onClick={create} disabled={loading}
+          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.green, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+          {loading ? "Setting reminder…" : "Set reminder →"}
+        </button>
+      </div>
+    </BottomSheet>
+  );
+};
+
 // ── Create Google Calendar Event Modal ───────────────────────────────────────
 const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);
@@ -599,9 +672,25 @@ const TasksTab = ({ tasks, setTasks }) => {
                 <SectionLabel label={cat} count={`${ct.filter(t=>t.done).length}/${ct.length}`} />
                 {ct.map((t, i) => (
                   <div key={t.id}>
-                    <SwipeableRow onDelete={() => setTasks(prev => prev.filter(p => p.id !== t.id))}>
+                    <SwipeableRow onDelete={() => { setTasks(prev => prev.filter(p => p.id !== t.id)); setUpcoming(prev => prev.filter(u => u.id !== t.id)); }}>
                       <div style={{ padding: "13px 20px", display: "flex", gap: 12, alignItems: "center", background: C.s1, opacity: t.done ? 0.45 : 1, transition: "opacity 0.2s" }}>
-                        <div onClick={() => setTasks(prev => prev.map(p => p.id === t.id ? {...p, done: !p.done} : p))}
+                        <div onClick={() => {
+                          const becomingDone = !t.done;
+                          setTasks(prev => prev.map(p => p.id === t.id ? {...p, done: becomingDone} : p));
+                          if (becomingDone) {
+                            // Completing → remove from Ahead
+                            setUpcoming(prev => prev.filter(u => u.id !== t.id));
+                          } else {
+                            // Unchecking → restore to Ahead if it was a reminder/calendar task
+                            if (t.isReminder) {
+                              setUpcoming(prev => [...prev, { id: t.id, title: t.title, detail: "Reminder", badge: "⏰", urgency: C.green, isReminder: true, createdAt: t.createdAt || Date.now() }]);
+                            } else if (t.isCalendar) {
+                              setUpcoming(prev => [...prev, { id: t.id, title: t.title, detail: "Calendar event", badge: "📅", urgency: C.blue }]);
+                            }
+                          }
+                          const tok = load("aria_google_token", null);
+                          if (tok && t.gTaskId && becomingDone) completeGTask(tok, t.gTaskId).catch(() => {});
+                        }}
                           style={{ width: 20, height: 20, borderRadius: 5, border: `1.5px solid ${t.done ? C.green : C.borderL}`, background: t.done ? C.greenL : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.2s" }}>
                           {t.done && <svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l2.5 2.5L9 1" stroke={C.green} strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>}
                         </div>
@@ -623,7 +712,10 @@ const TasksTab = ({ tasks, setTasks }) => {
           })
       }
       <div style={{ height: 20 }} />
-      {editingTask && <EditTaskModal task={editingTask} onSave={(u) => setTasks(prev => prev.map(t => t.id === u.id ? u : t))} onClose={() => setEditingTask(null)} />}
+      {editingTask && <EditTaskModal task={editingTask} onSave={(u) => {
+        setTasks(prev => prev.map(t => t.id === u.id ? u : t));
+        setUpcoming(prev => prev.map(up => up.id === u.id ? { ...up, title: u.title } : up));
+      }} onClose={() => setEditingTask(null)} />}
     </div>
   );
 };
@@ -648,24 +740,30 @@ const UpcomingTab = ({ upcoming, setUpcoming }) => {
       <SectionLabel label="On the horizon" count={upcoming.length} />
       {upcoming.length === 0
         ? <EmptyState icon="📅" text="Nothing scheduled yet.\nApprove a calendar proposal to add events here." />
-        : upcoming.map((u, i) => (
+        : upcoming.map((u, i) => {
+          const isOverdue = u.isReminder && u.createdAt && (Date.now() - u.createdAt) > 24 * 60 * 60 * 1000;
+          const color = isOverdue ? C.red : u.urgency;
+          return (
           <div key={u.id}>
             <SwipeableRow onDelete={() => setUpcoming(prev => prev.filter(x => x.id !== u.id))}>
               <div style={{ padding: "14px 20px", display: "flex", gap: 14, alignItems: "center", background: C.s1 }}>
-                <div style={{ fontFamily: F, fontSize: 12, fontWeight: 700, color: u.urgency, background: `${u.urgency}18`, padding: "5px 9px", borderRadius: 5, minWidth: 36, textAlign: "center" }}>{u.badge}</div>
+                <div style={{ fontFamily: F, fontSize: 12, fontWeight: 700, color, background: `${color}18`, padding: "5px 9px", borderRadius: 5, minWidth: 36, textAlign: "center" }}>
+                  {isOverdue ? "late" : u.badge}
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: F, fontSize: 14, fontWeight: 600, color: C.text }}>{u.title}</div>
-                  <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 3 }}>{u.detail}</div>
+                  <div style={{ fontFamily: F, fontSize: 11, color: isOverdue ? C.red : C.dim, marginTop: 3 }}>{isOverdue ? "Overdue" : u.detail}</div>
                 </div>
                 <button onClick={() => setEditingItem(u)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/></svg>
                 </button>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: u.urgency }} />
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
               </div>
             </SwipeableRow>
             {i < upcoming.length - 1 && <Divider />}
           </div>
-        ))
+          );
+        })
       }
       {upcoming.length > 0 && <div style={{ fontFamily: F, fontSize: 11, color: C.dim, textAlign: "center", padding: "12px 0" }}>← swipe left to delete</div>}
       <div style={{ height: 20 }} />
@@ -696,6 +794,7 @@ export default function App() {
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
   const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
   const [calendarProposal, setCalendarProposal] = useState(null);
+  const [reminderProposal, setReminderProposal] = useState(null);
   const [showRecorder, setShowRecorder] = useState(false);
 
   // Detect Google OAuth token on redirect back
@@ -708,12 +807,11 @@ export default function App() {
         save("aria_google_token", token);
         setGoogleToken(token);
         window.history.replaceState(null, "", window.location.pathname);
-        // Restore pending calendar proposal
-        const pending = load("aria_pending_calendar", null);
-        if (pending) {
-          setCalendarProposal(pending);
-          save("aria_pending_calendar", null);
-        }
+        // Restore pending calendar or reminder proposal
+        const pendingCal = load("aria_pending_calendar", null);
+        if (pendingCal) { setCalendarProposal(pendingCal); save("aria_pending_calendar", null); }
+        const pendingRem = load("aria_pending_reminder", null);
+        if (pendingRem) { setReminderProposal(pendingRem); save("aria_pending_reminder", null); }
       }
     }
   }, []);
@@ -725,6 +823,21 @@ export default function App() {
   const setCaptures = useCallback((v) => { setCapturesRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_captures", n); return n; }); }, []);
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
   const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
+
+  // Sync Google Tasks on load
+  useEffect(() => {
+    if (!googleToken) return;
+    fetchGTasks(googleToken).then(data => {
+      if (!data.items) return;
+      setTasks(prev => {
+        const existingGIds = new Set(prev.map(t => t.gTaskId).filter(Boolean));
+        const newFromGoogle = data.items
+          .filter(gt => !existingGIds.has(gt.id))
+          .map(gt => ({ id: Date.now() + Math.random(), title: gt.title, cat: "Work", priority: "medium", due: gt.due ? new Date(gt.due).toLocaleDateString() : "This week", done: false, gTaskId: gt.id }));
+        return newFromGoogle.length ? [...newFromGoogle, ...prev] : prev;
+      });
+    }).catch(() => {});
+  }, [googleToken]);
 
   const getBannerSessionKey = (id) => {
     const h = new Date().getHours();
@@ -763,9 +876,21 @@ export default function App() {
   const analyzeCapture = useCallback(async (captureId, text) => {
     try {
       const raw = await askClaude(
-        `You are ARIA. The user captured a note. Analyze it and respond ONLY with JSON (no markdown):
-{ "title": "short action title max 6 words", "body": "one sentence proposal", "type": "task|reminder|calendar|insight", "action": "short button label", "tags": ["tag1"], "due": "extracted date/time as plain English e.g. tomorrow 9:00 AM, Friday 3:00 PM, or null if not mentioned" }
-Types: task=action needed, reminder=time-based alert needed, calendar=event/meeting, insight=idea/reflection`,
+        `You are ARIA. Analyze this note and respond ONLY with JSON (no markdown):
+{
+  "title": "short action title max 6 words",
+  "body": "one sentence proposal",
+  "type": "task|reminder|calendar|insight",
+  "action": "short button label",
+  "tags": ["tag1"],
+  "due": "extracted date/time plain English or null",
+  "directAction": true,
+  "priority": "high|medium|low",
+  "cat": "Work|Personal|Health"
+}
+directAction true = clear simple intent (buy milk, call dentist tomorrow, team meeting friday).
+directAction false = ambiguous, complex, idea, reflection, or needs thinking.
+Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=idea.`,
         text
       );
       const p = JSON.parse(raw);
@@ -776,8 +901,21 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
         insight: { color: C.purple, colorL: C.purpleL, icon: "◇" },
       };
       const s = colorMap[p.type] || colorMap.insight;
-      setProposals(prev => [{ id: Date.now(), ...s, title: p.title, body: p.body, type: p.type, action: p.action, due: p.due || null, time: "Just now", sourceId: captureId }, ...prev]);
       setCaptures(prev => prev.map(c => c.id === captureId ? { ...c, tags: p.tags || [] } : c));
+
+      if (p.directAction && p.type === "task") {
+        const id = Date.now();
+        const newTask = { id, title: p.title, cat: p.cat || "Work", priority: p.priority || "medium", due: p.due || "This week", done: false, sourceId: captureId };
+        setTasks(prev => [newTask, ...prev]);
+        const tok = load("aria_google_token", null);
+        if (tok) createGTask(tok, p.title).then(gt => { if (gt.id) setTasks(prev => prev.map(t => t.id === id ? { ...t, gTaskId: gt.id } : t)); }).catch(() => {});
+      } else if (p.directAction && p.type === "reminder") {
+        setReminderProposal({ id: Date.now(), title: p.title, type: "reminder", sourceId: captureId });
+      } else if (p.directAction && p.type === "calendar") {
+        setCalendarProposal({ id: Date.now(), title: p.title, type: "calendar", sourceId: captureId });
+      } else {
+        setProposals(prev => [{ id: Date.now(), ...s, title: p.title, body: p.body, type: p.type, action: p.action, due: p.due || null, time: "Just now", sourceId: captureId }, ...prev]);
+      }
     } catch { /* silent fail */ }
   }, []);
 
@@ -804,17 +942,12 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     setProposals(prev => prev.filter(p => p.id !== proposal.id));
 
     if (proposal.type === "reminder") {
-      const taskId = Date.now();
-      // Add as task
-      setTasks(prev => [{ id: taskId, title: proposal.title, cat: "Work", priority: "high", due: "Reminder set", done: false }, ...prev]);
-      // Add to upcoming for tracking
-      setUpcoming(prev => [{ id: taskId, title: proposal.title, detail: "Reminder set via Apple Reminders", badge: "⏰", urgency: C.green, isReminder: true, createdAt: Date.now() }, ...prev]);
-      setTab("tasks");
-      // Open Shortcut
-      setTimeout(() => {
-        const title = encodeURIComponent(proposal.title.trim());
-        window.location.href = `shortcuts://run-shortcut?name=ARIA%20Reminder&input=text&text=${title}`;
-      }, 500);
+      if (!googleToken) {
+        save("aria_pending_reminder", proposal);
+        window.location.href = getGoogleAuthUrl();
+        return;
+      }
+      setReminderProposal(proposal);
       return;
     }
 
@@ -829,12 +962,20 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
     }
 
     // task / insight / default → add to tasks
-    setTasks(prev => [{ id: Date.now(), title: proposal.title, cat: proposal.type === "health" ? "Health" : proposal.type === "personal" ? "Personal" : "Work", priority: "medium", due: "This week", done: false }, ...prev]);
+    const newId = Date.now();
+    const newTask = { id: newId, title: proposal.title, cat: proposal.type === "health" ? "Health" : proposal.type === "personal" ? "Personal" : "Work", priority: "medium", due: "This week", done: false };
+    setTasks(prev => [newTask, ...prev]);
+    const tok = load("aria_google_token", null);
+    if (tok) createGTask(tok, proposal.title).then(gt => { if (gt.id) setTasks(prev => prev.map(t => t.id === newId ? { ...t, gTaskId: gt.id } : t)); }).catch(() => {});
     setTab("tasks");
   }, []);
 
   const dismissProposal = useCallback((id) => setProposals(prev => prev.filter(p => p.id !== id)), []);
-  const deleteCapture = useCallback((id) => { setCaptures(prev => prev.filter(c => c.id !== id)); setProposals(prev => prev.filter(p => p.sourceId !== id)); }, []);
+  const deleteCapture = useCallback((id) => {
+    setCaptures(prev => prev.filter(c => c.id !== id));
+    setProposals(prev => prev.filter(p => p.sourceId !== id));
+    setTasks(prev => prev.filter(t => t.sourceId !== id));
+  }, [setCaptures, setProposals, setTasks]);
 
   const propBadge = proposals.length;
 
@@ -861,6 +1002,23 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
       </div>
 
       {/* Text capture FAB */}
+      {/* Google Reminder Modal */}
+      {reminderProposal && googleToken && (
+        <CreateReminderModal
+          proposal={reminderProposal}
+          googleToken={googleToken}
+          onClose={() => setReminderProposal(null)}
+          onCreated={() => {
+            const id = Date.now();
+            setProposals(prev => prev.filter(p => p.id !== reminderProposal.id));
+            setTasks(prev => [{ id, title: reminderProposal.title, cat: "Work", priority: "high", due: "Reminder set", done: false, isReminder: true, createdAt: Date.now() }, ...prev]);
+            setUpcoming(prev => [{ id, title: reminderProposal.title, detail: "Reminder via Google Calendar", badge: "⏰", urgency: C.green, isReminder: true, createdAt: Date.now() }, ...prev]);
+            setReminderProposal(null);
+            setTab("tasks");
+          }}
+        />
+      )}
+
       {/* Google Calendar Event Modal */}
       {calendarProposal && googleToken && (
         <CreateEventModal
@@ -870,7 +1028,7 @@ Types: task=action needed, reminder=time-based alert needed, calendar=event/meet
           onCreated={() => {
             const id = Date.now();
             setProposals(prev => prev.filter(p => p.id !== calendarProposal.id));
-            setTasks(prev => [{ id, title: calendarProposal.title, cat: "Work", priority: "medium", due: "Scheduled", done: false }, ...prev]);
+            setTasks(prev => [{ id, title: calendarProposal.title, cat: "Work", priority: "medium", due: "Scheduled", done: false, isCalendar: true }, ...prev]);
             setUpcoming(prev => [{ id, title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue }, ...prev]);
             setCalendarProposal(null);
             setTab("tasks");
