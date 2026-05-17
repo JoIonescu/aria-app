@@ -49,49 +49,58 @@ const getGoogleAuthUrl = () => {
 };
 
 const createGCalEvent = async (token, title, start, end, isReminder = false) => {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const body = {
-    summary: title,
-    start: { dateTime: start, timeZone: tz },
-    end: { dateTime: end, timeZone: tz },
-    reminders: isReminder
-      ? { useDefault: false, overrides: [{ method: "popup", minutes: 0 }] }
-      : { useDefault: true },
-  };
-  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return res.json();
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const body = {
+      summary: title,
+      start: { dateTime: start, timeZone: tz },
+      end: { dateTime: end, timeZone: tz },
+      reminders: isReminder
+        ? { useDefault: false, overrides: [{ method: "popup", minutes: 0 }] }
+        : { useDefault: true },
+    };
+    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) return { error: data?.error?.message || `HTTP ${res.status}` };
+    return { success: true, data };
+  } catch (e) { return { error: e.message }; }
 };
 
 // ── Google Tasks helpers ──────────────────────────────────────────────────────
 const createGTask = async (token, title) => {
-  const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ title }),
-  });
-  if (res.status === 401) { save("aria_google_token", null); return {}; }
-  return res.json();
+  try {
+    const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) return {};
+    return res.json();
+  } catch { return {}; }
 };
 
 const completeGTask = async (token, taskId) => {
-  const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/${taskId}`, {
-    method: "PATCH",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "completed" }),
-  });
-  if (res.status === 401) save("aria_google_token", null);
+  try {
+    await fetch(`https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "completed" }),
+    });
+  } catch {}
 };
 
 const fetchGTasks = async (token) => {
-  const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=100", {
-    headers: { "Authorization": `Bearer ${token}` },
-  });
-  if (res.status === 401) { save("aria_google_token", null); return {}; }
-  return res.json();
+  try {
+    const res = await fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=100", {
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) return {};
+    return res.json();
+  } catch { return {}; }
 };
 const askClaude = async (system, userMsg) => {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -435,13 +444,12 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
 
   const create = async () => {
     setLoading(true); setError("");
-    try {
-      const start = new Date(when).toISOString();
-      const end = new Date(new Date(when).getTime() + 30 * 60 * 1000).toISOString();
-      await createGCalEvent(googleToken, proposal.title, start, end, true);
-      onCreated();
-      onClose();
-    } catch { setError("Failed to create reminder. Try again."); }
+    const start = new Date(when).toISOString();
+    const end = new Date(new Date(when).getTime() + 30 * 60 * 1000).toISOString();
+    const result = await createGCalEvent(googleToken, proposal.title, start, end, true);
+    if (result.error) { setError(`Could not set reminder: ${result.error}`); setLoading(false); return; }
+    onCreated();
+    onClose();
     setLoading(false);
   };
 
@@ -477,16 +485,10 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
 
   const create = async () => {
     setLoading(true); setError("");
-    try {
-      const result = await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
-      if (result.error) {
-        setError(`Google error: ${result.error.message}`);
-        if (result.error.code === 401) { save("aria_google_token", null); setError("Session expired. Please reconnect Google Calendar."); }
-        setLoading(false); return;
-      }
-      onCreated();
-      onClose();
-    } catch (e) { setError(`Failed: ${e.message}`); }
+    const result = await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
+    if (result.error) { setError(`Could not create event: ${result.error}`); setLoading(false); return; }
+    onCreated();
+    onClose();
     setLoading(false);
   };
 
