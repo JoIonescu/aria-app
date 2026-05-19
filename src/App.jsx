@@ -519,7 +519,7 @@ const CompletionBanner = ({ items, onDone, onSnooze }) => {
   return (
     <div style={{ margin: "12px 16px 0", borderRadius: 12, background: C.greenL, border: `1px solid ${C.green}33`, borderLeft: `4px solid ${C.green}`, overflow: "hidden" }}>
       <div style={{ padding: "12px 14px 8px" }}>
-        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 700, color: C.green, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>⏰ Did you complete these?</div>
+        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 700, color: C.green, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>⏰ Did these happen?</div>
         {items.map(item => (
           <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
             <span style={{ fontFamily: F, fontSize: 13, color: C.text, flex: 1 }}>{item.title}</span>
@@ -663,7 +663,7 @@ const CapturesTab = ({ captures, onDelete, onEdit }) => (
 );
 
 // ── Tab: Tasks ────────────────────────────────────────────────────────────────
-const TasksTab = ({ tasks, setTasks }) => {
+const TasksTab = ({ tasks, setTasks, setUpcoming }) => {
   const [editingTask, setEditingTask] = useState(null);
   const cats = [...new Set(tasks.map(t => t.cat))];
   const truncate = (str, n = 5) => str.split(" ").length > n ? str.split(" ").slice(0, n).join(" ") + "…" : str;
@@ -853,7 +853,7 @@ export default function App() {
   };
 
   const completionItems = (upcoming || []).filter(u => {
-    if (!u || !u.isReminder || !u.createdAt) return false;
+    if (!u || (!u.isReminder && !u.isCalendar) || !u.createdAt) return false;
     const now = Date.now();
     const age = now - u.createdAt;
     const sessionKey = getBannerSessionKey(u.id);
@@ -1003,7 +1003,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} onApprove={approveProposal} onDismiss={dismissProposal} completionItems={completionItems} onDone={handleDone} onSnooze={handleSnooze} />}
         {tab === "captures"  && <CapturesTab captures={captures} onDelete={deleteCapture} onEdit={setEditingCapture} />}
-        {tab === "tasks"     && <TasksTab tasks={tasks} setTasks={setTasks} />}
+        {tab === "tasks"     && <TasksTab tasks={tasks} setTasks={setTasks} setUpcoming={setUpcoming} />}
         {tab === "proposals" && <ProposalsTab proposals={proposals} onApprove={approveProposal} onDismiss={dismissProposal} />}
         {tab === "upcoming"  && <UpcomingTab upcoming={upcoming} setUpcoming={setUpcoming} />}
       </div>
@@ -1036,7 +1036,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
             const id = Date.now();
             setProposals(prev => prev.filter(p => p.id !== calendarProposal.id));
             setTasks(prev => [{ id, title: calendarProposal.title, cat: "Work", priority: "medium", due: "Scheduled", done: false, isCalendar: true }, ...prev]);
-            setUpcoming(prev => [{ id, title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue }, ...prev]);
+            setUpcoming(prev => [{ id, title: calendarProposal.title, detail: "Added to Google Calendar", badge: "📅", urgency: C.blue, isCalendar: true, createdAt: Date.now() }, ...prev]);
             setCalendarProposal(null);
             setTab("tasks");
           }}
