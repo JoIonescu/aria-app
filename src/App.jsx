@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { signInAnon, loadUserData, saveUserData } from "./firebase";
 
 const styleEl = document.createElement("style");
 styleEl.textContent = `
@@ -448,16 +447,7 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
     const start = new Date(when).toISOString();
     const end = new Date(new Date(when).getTime() + 30 * 60 * 1000).toISOString();
     const result = await createGCalEvent(googleToken, proposal.title, start, end, true);
-    if (result.error) {
-      if (result.error.includes("401") || result.error.toLowerCase().includes("credentials") || result.error.toLowerCase().includes("authentication")) {
-        save("aria_google_token", null);
-        setError("Google session expired. Tap below to reconnect.");
-        setExpired(true);
-      } else {
-        setError(`Could not set reminder: ${result.error}`);
-      }
-      setLoading(false); return;
-    }
+    if (result.error) { setError(`Could not set reminder: ${result.error}`); setLoading(false); return; }
     onCreated();
     onClose();
     setLoading(false);
@@ -809,46 +799,7 @@ export default function App() {
   const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
   const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
-  const [userId, setUserId] = useState(null);
-  const saveTimer = useRef(null);
   const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
-
-  // Sign in anonymously and load data from Firestore
-  useEffect(() => {
-    signInAnon().then(({ user }) => {
-      setUserId(user.uid);
-      loadUserData(user.uid).then(data => {
-        if (data) {
-          // Firestore has data — use it (overrides localStorage)
-          if (data.tasks) setTasksRaw(data.tasks);
-          if (data.captures) setCapturesRaw(data.captures);
-          if (data.proposals) setProposalsRaw(data.proposals);
-          if (data.upcoming) setUpcomingRaw(data.upcoming);
-          if (data.snoozed) setSnoozedRaw(data.snoozed);
-        } else {
-          // No Firestore data — migrate from localStorage
-          const localData = {
-            tasks: load("aria_tasks", []),
-            captures: load("aria_captures", []),
-            proposals: load("aria_proposals", []),
-            upcoming: load("aria_upcoming", []),
-            snoozed: load("aria_snoozed", []),
-          };
-          saveUserData(user.uid, localData);
-        }
-      });
-    }).catch(() => {});
-  }, []);
-
-  // Debounced save to Firestore on any state change
-  useEffect(() => {
-    if (!userId) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      saveUserData(userId, { tasks, captures, proposals, upcoming, snoozed });
-    }, 1500);
-    return () => clearTimeout(saveTimer.current);
-  }, [tasks, captures, proposals, upcoming, snoozed, userId]);
   const [calendarProposal, setCalendarProposal] = useState(null);
   const [reminderProposal, setReminderProposal] = useState(null);
   const [showRecorder, setShowRecorder] = useState(false);
@@ -880,35 +831,18 @@ export default function App() {
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
   const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
 
-  // Sync Google Tasks on load — fetch completed tasks and mark done in ARIA
+  // Sync Google Tasks on load
   useEffect(() => {
     if (!googleToken) return;
     fetchGTasks(googleToken).then(data => {
       if (!data.items) return;
       setTasks(prev => {
         const existingGIds = new Set(prev.map(t => t.gTaskId).filter(Boolean));
-        // Add new tasks from Google
         const newFromGoogle = data.items
           .filter(gt => !existingGIds.has(gt.id))
           .map(gt => ({ id: Date.now() + Math.random(), title: gt.title, cat: "Work", priority: "medium", due: gt.due ? new Date(gt.due).toLocaleDateString() : "This week", done: false, gTaskId: gt.id }));
         return newFromGoogle.length ? [...newFromGoogle, ...prev] : prev;
       });
-    }).catch(() => {});
-
-    // Separately fetch completed tasks and mark done in ARIA
-    fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=true&showHidden=true&maxResults=100", {
-      headers: { "Authorization": `Bearer ${googleToken}` },
-    }).then(r => r.ok ? r.json() : {}).then(data => {
-      if (!data.items) return;
-      const completedGIds = new Set(
-        data.items.filter(t => t.status === "completed").map(t => t.id)
-      );
-      if (completedGIds.size === 0) return;
-      setTasks(prev => prev.map(t =>
-        t.gTaskId && completedGIds.has(t.gTaskId) && !t.done
-          ? { ...t, done: true }
-          : t
-      ));
     }).catch(() => {});
   }, [googleToken]);
 
