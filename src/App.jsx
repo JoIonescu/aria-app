@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { signInAnon, loadUserData, saveUserData } from "./firebase";
 
 const styleEl = document.createElement("style");
 styleEl.textContent = `
@@ -441,13 +442,23 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const [when, setWhen] = useState(fmt(def));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expired, setExpired] = useState(false);
 
   const create = async () => {
     setLoading(true); setError("");
     const start = new Date(when).toISOString();
     const end = new Date(new Date(when).getTime() + 30 * 60 * 1000).toISOString();
     const result = await createGCalEvent(googleToken, proposal.title, start, end, true);
-    if (result.error) { setError(`Could not set reminder: ${result.error}`); setLoading(false); return; }
+    if (result.error) {
+      if (result.error.includes("401") || result.error.toLowerCase().includes("credentials") || result.error.toLowerCase().includes("authentication")) {
+        save("aria_google_token", null);
+        setError("Google session expired. Tap below to reconnect.");
+        setExpired(true);
+      } else {
+        setError(`Could not set reminder: ${result.error}`);
+      }
+      setLoading(false); return;
+    }
     onCreated();
     onClose();
     setLoading(false);
@@ -462,11 +473,17 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
         <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>When?</div>
         <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)}
           style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
-        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12 }}>{error}</div>}
-        <button onClick={create} disabled={loading}
-          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.green, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
-          {loading ? "Setting reminder…" : "Set reminder →"}
-        </button>
+        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12, lineHeight: 1.5 }}>{error}</div>}
+        {expired
+          ? <button onClick={() => { save("aria_pending_reminder", proposal); window.location.href = getGoogleAuthUrl(); }}
+              style={{ width: "100%", padding: "13px", background: C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+              Reconnect Google →
+            </button>
+          : <button onClick={create} disabled={loading}
+              style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.green, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+              {loading ? "Setting reminder…" : "Set reminder →"}
+            </button>
+        }
       </div>
     </BottomSheet>
   );
@@ -477,16 +494,25 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);
   const tomorrowEnd = new Date(tomorrow); tomorrowEnd.setHours(10, 0, 0, 0);
   const fmt = (d) => d.toISOString().slice(0, 16);
-
   const [start, setStart] = useState(fmt(tomorrow));
   const [end, setEnd] = useState(fmt(tomorrowEnd));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expired, setExpired] = useState(false);
 
   const create = async () => {
     setLoading(true); setError("");
     const result = await createGCalEvent(googleToken, proposal.title, new Date(start).toISOString(), new Date(end).toISOString());
-    if (result.error) { setError(`Could not create event: ${result.error}`); setLoading(false); return; }
+    if (result.error) {
+      if (result.error.includes("401") || result.error.toLowerCase().includes("credentials") || result.error.toLowerCase().includes("authentication")) {
+        save("aria_google_token", null);
+        setError("Google session expired. Tap below to reconnect.");
+        setExpired(true);
+      } else {
+        setError(`Could not create event: ${result.error}`);
+      }
+      setLoading(false); return;
+    }
     onCreated();
     onClose();
     setLoading(false);
@@ -503,11 +529,17 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
         <div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>End</div>
         <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)}
           style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
-        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12 }}>{error}</div>}
-        <button onClick={create} disabled={loading}
-          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
-          {loading ? "Creating…" : "Add to Google Calendar →"}
-        </button>
+        {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12, lineHeight: 1.5 }}>{error}</div>}
+        {expired
+          ? <button onClick={() => { save("aria_pending_calendar", proposal); window.location.href = getGoogleAuthUrl(); }}
+              style={{ width: "100%", padding: "13px", background: C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
+              Reconnect Google →
+            </button>
+          : <button onClick={create} disabled={loading}
+              style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+              {loading ? "Creating…" : "Add to Google Calendar →"}
+            </button>
+        }
       </div>
     </BottomSheet>
   );
@@ -799,7 +831,47 @@ export default function App() {
   const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
   const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
+  const [userId, setUserId] = useState(null);
+  const saveTimer = useRef(null);
   const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
+  const clearGoogleToken = useCallback(() => { save("aria_google_token", null); setGoogleToken(null); }, []);
+
+  // Sign in anonymously and load data from Firestore
+  useEffect(() => {
+    signInAnon().then(({ user }) => {
+      setUserId(user.uid);
+      loadUserData(user.uid).then(data => {
+        if (data) {
+          // Firestore has data — use it (overrides localStorage)
+          if (data.tasks) setTasksRaw(data.tasks);
+          if (data.captures) setCapturesRaw(data.captures);
+          if (data.proposals) setProposalsRaw(data.proposals);
+          if (data.upcoming) setUpcomingRaw(data.upcoming);
+          if (data.snoozed) setSnoozedRaw(data.snoozed);
+        } else {
+          // No Firestore data — migrate from localStorage
+          const localData = {
+            tasks: load("aria_tasks", []),
+            captures: load("aria_captures", []),
+            proposals: load("aria_proposals", []),
+            upcoming: load("aria_upcoming", []),
+            snoozed: load("aria_snoozed", []),
+          };
+          saveUserData(user.uid, localData);
+        }
+      });
+    }).catch(() => {});
+  }, []);
+
+  // Debounced save to Firestore on any state change
+  useEffect(() => {
+    if (!userId) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveUserData(userId, { tasks, captures, proposals, upcoming, snoozed });
+    }, 1500);
+    return () => clearTimeout(saveTimer.current);
+  }, [tasks, captures, proposals, upcoming, snoozed, userId]);
   const [calendarProposal, setCalendarProposal] = useState(null);
   const [reminderProposal, setReminderProposal] = useState(null);
   const [showRecorder, setShowRecorder] = useState(false);
@@ -831,18 +903,35 @@ export default function App() {
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
   const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
 
-  // Sync Google Tasks on load
+  // Sync Google Tasks on load — fetch completed tasks and mark done in ARIA
   useEffect(() => {
     if (!googleToken) return;
     fetchGTasks(googleToken).then(data => {
       if (!data.items) return;
       setTasks(prev => {
         const existingGIds = new Set(prev.map(t => t.gTaskId).filter(Boolean));
+        // Add new tasks from Google
         const newFromGoogle = data.items
           .filter(gt => !existingGIds.has(gt.id))
           .map(gt => ({ id: Date.now() + Math.random(), title: gt.title, cat: "Work", priority: "medium", due: gt.due ? new Date(gt.due).toLocaleDateString() : "This week", done: false, gTaskId: gt.id }));
         return newFromGoogle.length ? [...newFromGoogle, ...prev] : prev;
       });
+    }).catch(() => {});
+
+    // Separately fetch completed tasks and mark done in ARIA
+    fetch("https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=true&showHidden=true&maxResults=100", {
+      headers: { "Authorization": `Bearer ${googleToken}` },
+    }).then(r => r.ok ? r.json() : {}).then(data => {
+      if (!data.items) return;
+      const completedGIds = new Set(
+        data.items.filter(t => t.status === "completed").map(t => t.id)
+      );
+      if (completedGIds.size === 0) return;
+      setTasks(prev => prev.map(t =>
+        t.gTaskId && completedGIds.has(t.gTaskId) && !t.done
+          ? { ...t, done: true }
+          : t
+      ));
     }).catch(() => {});
   }, [googleToken]);
 
