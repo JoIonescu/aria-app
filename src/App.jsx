@@ -44,7 +44,6 @@ const getGoogleAuthUrl = () => {
     redirect_uri: window.location.origin,
     response_type: "token",
     scope: GOOGLE_SCOPES,
-    prompt: "consent",
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 };
@@ -107,9 +106,10 @@ const askClaude = async (system, userMsg) => {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 400, system, messages: [{ role: "user", content: userMsg }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 400, system, messages: [{ role: "user", content: userMsg }] }),
   });
   const data = await res.json();
+  if (!res.ok) throw new Error(`API error: ${data.error?.message || res.status}`);
   return data.content[0].text.replace(/```json|```/g, "").trim();
 };
 
@@ -442,7 +442,6 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const [when, setWhen] = useState(fmt(def));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [expired, setExpired] = useState(false);
 
   const create = async () => {
     setLoading(true); setError("");
@@ -452,11 +451,11 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
     if (result.error) {
       if (result.error.includes("401") || result.error.toLowerCase().includes("credentials") || result.error.toLowerCase().includes("authentication")) {
         save("aria_google_token", null);
-        setError("Google session expired. Tap below to reconnect.");
-        setExpired(true);
-      } else {
-        setError(`Could not set reminder: ${result.error}`);
+        save("aria_pending_reminder", proposal);
+        window.location.href = getGoogleAuthUrl();
+        return;
       }
+      setError(`Could not set reminder: ${result.error}`);
       setLoading(false); return;
     }
     onCreated();
@@ -474,16 +473,10 @@ const CreateReminderModal = ({ proposal, googleToken, onClose, onCreated }) => {
         <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)}
           style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
         {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12, lineHeight: 1.5 }}>{error}</div>}
-        {expired
-          ? <button onClick={() => { save("aria_pending_reminder", proposal); window.location.href = getGoogleAuthUrl(); }}
-              style={{ width: "100%", padding: "13px", background: C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
-              Reconnect Google →
-            </button>
-          : <button onClick={create} disabled={loading}
-              style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.green, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
-              {loading ? "Setting reminder…" : "Set reminder →"}
-            </button>
-        }
+        <button onClick={create} disabled={loading}
+          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.green, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+          {loading ? "Setting reminder…" : "Set reminder →"}
+        </button>
       </div>
     </BottomSheet>
   );
@@ -498,7 +491,6 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
   const [end, setEnd] = useState(fmt(tomorrowEnd));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [expired, setExpired] = useState(false);
 
   const create = async () => {
     setLoading(true); setError("");
@@ -506,11 +498,11 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
     if (result.error) {
       if (result.error.includes("401") || result.error.toLowerCase().includes("credentials") || result.error.toLowerCase().includes("authentication")) {
         save("aria_google_token", null);
-        setError("Google session expired. Tap below to reconnect.");
-        setExpired(true);
-      } else {
-        setError(`Could not create event: ${result.error}`);
+        save("aria_pending_calendar", proposal);
+        window.location.href = getGoogleAuthUrl();
+        return;
       }
+      setError(`Could not create event: ${result.error}`);
       setLoading(false); return;
     }
     onCreated();
@@ -530,16 +522,10 @@ const CreateEventModal = ({ proposal, googleToken, onClose, onCreated }) => {
         <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)}
           style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 8, padding: "10px 12px", fontFamily: F, color: C.text, marginBottom: 16 }} />
         {error && <div style={{ fontFamily: F, fontSize: 12, color: C.red, marginBottom: 12, lineHeight: 1.5 }}>{error}</div>}
-        {expired
-          ? <button onClick={() => { save("aria_pending_calendar", proposal); window.location.href = getGoogleAuthUrl(); }}
-              style={{ width: "100%", padding: "13px", background: C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: "pointer" }}>
-              Reconnect Google →
-            </button>
-          : <button onClick={create} disabled={loading}
-              style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
-              {loading ? "Creating…" : "Add to Google Calendar →"}
-            </button>
-        }
+        <button onClick={create} disabled={loading}
+          style={{ width: "100%", padding: "13px", background: loading ? C.s3 : C.accent, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: "#fff", cursor: loading ? "default" : "pointer" }}>
+          {loading ? "Creating…" : "Add to Google Calendar →"}
+        </button>
       </div>
     </BottomSheet>
   );
@@ -1012,7 +998,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
       } else {
         setProposals(prev => [{ id: Date.now(), ...s, title: p.title, body: p.body, type: p.type, action: p.action, due: p.due || null, time: "Just now", sourceId: captureId }, ...prev]);
       }
-    } catch { /* silent fail */ }
+    } catch (err) { console.error("analyzeCapture error:", err); }
   }, []);
 
   // ── Add capture ──
