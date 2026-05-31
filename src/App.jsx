@@ -264,10 +264,11 @@ const BottomSheet = ({ onClose, children }) => (
 );
 
 // ── Text Capture Modal ────────────────────────────────────────────────────────
-const TextCaptureModal = ({ onClose, onSubmit }) => {
+const TextCaptureModal = ({ onClose, onSubmit, onSaveNote }) => {
   const [text, setText] = useState("");
   const ref = useRef(null);
   useEffect(() => { setTimeout(() => ref.current?.focus(), 150); }, []);
+  const hasText = text.trim().length > 0;
   return (
     <BottomSheet onClose={onClose}>
       <div style={{ padding: "16px 20px 32px" }}>
@@ -278,13 +279,17 @@ const TextCaptureModal = ({ onClose, onSubmit }) => {
         </div>
         <textarea ref={ref} value={text} onChange={e => setText(e.target.value)} placeholder="What's on your mind…" rows={4}
           style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 10, padding: "12px 14px", fontFamily: F, fontSize: 14, color: C.text, resize: "none", lineHeight: 1.6, marginBottom: 12 }} />
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "12px", background: C.s2, border: `1px solid ${C.border}`, borderRadius: 10, fontFamily: F, fontSize: 13, color: C.dim, cursor: "pointer" }}>cancel</button>
-          <button onClick={() => { if (text.trim()) { onSubmit(text.trim()); onClose(); } }} disabled={!text.trim()}
-            style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none", background: text.trim() ? C.accent : C.s3, fontFamily: F, fontSize: 13, fontWeight: 700, color: text.trim() ? "#fff" : C.dim, cursor: text.trim() ? "pointer" : "default", transition: "all 0.2s" }}>
+          <button onClick={() => { if (hasText) { onSubmit(text.trim()); onClose(); } }} disabled={!hasText}
+            style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none", background: hasText ? C.accent : C.s3, fontFamily: F, fontSize: 13, fontWeight: 700, color: hasText ? "#fff" : C.dim, cursor: hasText ? "pointer" : "default", transition: "all 0.2s" }}>
             capture →
           </button>
         </div>
+        <button onClick={() => { if (hasText) { onSaveNote(text.trim()); onClose(); } }} disabled={!hasText}
+          style={{ width: "100%", padding: "11px", borderRadius: 10, border: `1.5px solid ${hasText ? C.borderL : C.border}`, background: "transparent", fontFamily: F, fontSize: 13, fontWeight: 600, color: hasText ? C.sub : C.dim, cursor: hasText ? "pointer" : "default", transition: "all 0.2s" }}>
+          📝 save as note
+        </button>
       </div>
     </BottomSheet>
   );
@@ -557,7 +562,7 @@ const CompletionBanner = ({ items, onDone, onSnooze }) => {
     </div>
   );
 };
-const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss, completionItems, onDone, onSnooze }) => {
+const HomeTab = ({ captures, tasks, proposals, upcoming, notes, onApprove, onDismiss, completionItems, onDone, onSnooze }) => {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const pendingTasks = tasks.filter(t => !t.done).length;
@@ -629,6 +634,24 @@ const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss, c
         ))}
       </>}
 
+      {/* Notes preview */}
+      {notes && notes.length > 0 && <>
+        <SectionLabel label="Recent notes" count={notes.length} />
+        {notes.slice(0, 2).map((n, i) => (
+          <div key={n.id}>
+            <div style={{ padding: "12px 20px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>📝</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: F, fontSize: 13, color: C.text, lineHeight: 1.5 }}>{n.text.length > 80 ? n.text.slice(0, 80) + "…" : n.text}</div>
+                <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 2 }}>{n.ago}</div>
+              </div>
+            </div>
+            {i < Math.min(notes.length, 2) - 1 && <Divider />}
+          </div>
+        ))}
+        {notes.length > 2 && <div style={{ fontFamily: F, fontSize: 12, color: C.accent, padding: "6px 20px 4px" }}>+{notes.length - 2} more notes →</div>}
+      </>}
+
       {captures.length === 0 && tasks.length === 0 && proposals.length === 0 && (
         <EmptyState icon="👋" text={"Start by tapping the mic button\nor the pencil to drop a note.\nARIA will take it from there."} />
       )}
@@ -638,7 +661,29 @@ const HomeTab = ({ captures, tasks, proposals, upcoming, onApprove, onDismiss, c
 };
 
 // ── Tab: Captures ─────────────────────────────────────────────────────────────
-const CapturesTab = ({ captures, onDelete, onEdit }) => (
+// ── Note Card ─────────────────────────────────────────────────────────────────
+const NoteCard = ({ note, onDelete, onSendToARIA }) => (
+  <SwipeableRow onDelete={() => onDelete(note.id)}>
+    <div style={{ padding: "14px 20px", background: C.s1, display: "flex", gap: 12, alignItems: "flex-start" }}>
+      <div style={{ flexShrink: 0, marginTop: 2 }}>
+        <div style={{ background: "rgba(74,53,128,0.12)", borderRadius: 6, padding: "4px 6px", display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ fontSize: 10 }}>📝</span>
+          <span style={{ fontFamily: F, fontSize: 9, fontWeight: 700, color: C.purple, letterSpacing: "0.05em" }}>NOTE</span>
+        </div>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontFamily: F, fontSize: 14, color: C.text, lineHeight: 1.6 }}>{note.text}</div>
+        <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 4 }}>{note.ago}</div>
+      </div>
+      <button onClick={() => onSendToARIA(note)}
+        style={{ background: C.purpleL, border: `1px solid ${C.purple}33`, borderRadius: 8, padding: "6px 10px", fontFamily: F, fontSize: 11, fontWeight: 700, color: C.purple, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+        Send →
+      </button>
+    </div>
+  </SwipeableRow>
+);
+
+const CapturesTab = ({ captures, notes, onDelete, onEdit, onDeleteNote, onSendNoteToARIA }) => (
   <div style={{ animation: "fadeUp 0.3s ease" }}>
     <SectionLabel label="Captures" count={captures.length} />
     {captures.length === 0
@@ -647,7 +692,6 @@ const CapturesTab = ({ captures, onDelete, onEdit }) => (
         <div key={c.id}>
           <SwipeableRow onDelete={() => onDelete(c.id)}>
             <div style={{ padding: "14px 20px", background: C.s1, display: "flex", gap: 12, alignItems: "flex-start" }}>
-              {/* Type badge */}
               <div style={{ flexShrink: 0, marginTop: 2 }}>
                 {c.type === "voice"
                   ? <div style={{ background: C.accentL, borderRadius: 6, padding: "4px 6px", display: "flex", alignItems: "center", gap: 3 }}>
@@ -660,12 +704,10 @@ const CapturesTab = ({ captures, onDelete, onEdit }) => (
                     </div>
                 }
               </div>
-              {/* Content */}
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: F, fontSize: 14, color: C.text, lineHeight: 1.6 }}>{c.text}</div>
                 <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 4 }}>{c.ago}</div>
               </div>
-              {/* Edit */}
               <button onClick={() => onEdit(c)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", flexShrink: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={C.dim} strokeWidth="1.5" strokeLinecap="round"/></svg>
               </button>
@@ -675,7 +717,16 @@ const CapturesTab = ({ captures, onDelete, onEdit }) => (
         </div>
       ))
     }
-    <div style={{ fontFamily: F, fontSize: 11, color: C.dim, textAlign: "center", padding: "12px 0", opacity: captures.length ? 1 : 0 }}>← swipe left to delete</div>
+    {notes.length > 0 && <>
+      <SectionLabel label="Notes" count={notes.length} />
+      {notes.map((n, i) => (
+        <div key={n.id}>
+          <NoteCard note={n} onDelete={onDeleteNote} onSendToARIA={onSendNoteToARIA} />
+          {i < notes.length - 1 && <Divider />}
+        </div>
+      ))}
+    </>}
+    <div style={{ fontFamily: F, fontSize: 11, color: C.dim, textAlign: "center", padding: "12px 0", opacity: (captures.length + notes.length) ? 1 : 0 }}>← swipe left to delete</div>
     <div style={{ height: 20 }} />
   </div>
 );
@@ -817,6 +868,7 @@ export default function App() {
   const [captures, setCapturesRaw] = useState(() => load("aria_captures", []));
   const [upcoming, setUpcomingRaw] = useState(() => load("aria_upcoming", []));
   const [snoozed, setSnoozedRaw] = useState(() => load("aria_snoozed", []));
+  const [notes, setNotesRaw] = useState(() => load("aria_notes", []));
   const [userId, setUserId] = useState(null);
   const saveTimer = useRef(null);
   const [googleToken, setGoogleToken] = useState(() => load("aria_google_token", null));
@@ -834,6 +886,7 @@ export default function App() {
           if (data.proposals) setProposalsRaw(data.proposals);
           if (data.upcoming) setUpcomingRaw(data.upcoming);
           if (data.snoozed) setSnoozedRaw(data.snoozed);
+          if (data.notes) setNotesRaw(data.notes);
         } else {
           // No Firestore data — migrate from localStorage
           const localData = {
@@ -842,6 +895,7 @@ export default function App() {
             proposals: load("aria_proposals", []),
             upcoming: load("aria_upcoming", []),
             snoozed: load("aria_snoozed", []),
+            notes: load("aria_notes", []),
           };
           saveUserData(user.uid, localData);
         }
@@ -854,10 +908,10 @@ export default function App() {
     if (!userId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      saveUserData(userId, { tasks, captures, proposals, upcoming, snoozed });
+      saveUserData(userId, { tasks, captures, proposals, upcoming, snoozed, notes });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
-  }, [tasks, captures, proposals, upcoming, snoozed, userId]);
+  }, [tasks, captures, proposals, upcoming, snoozed, notes, userId]);
   const [calendarProposal, setCalendarProposal] = useState(null);
   const [reminderProposal, setReminderProposal] = useState(null);
   const [showRecorder, setShowRecorder] = useState(false);
@@ -888,6 +942,7 @@ export default function App() {
   const setCaptures = useCallback((v) => { setCapturesRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_captures", n); return n; }); }, []);
   const setUpcoming = useCallback((v) => { setUpcomingRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_upcoming", n); return n; }); }, []);
   const setSnoozed = useCallback((v) => { setSnoozedRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_snoozed", n); return n; }); }, []);
+  const setNotes = useCallback((v) => { setNotesRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_notes", n); return n; }); }, []);
 
   // Sync Google Tasks on load — fetch completed tasks and mark done in ARIA
   useEffect(() => {
@@ -966,12 +1021,12 @@ export default function App() {
   "action": "short button label",
   "tags": ["tag1"],
   "due": "extracted date/time plain English or null",
-  "directAction": true,
+  "directAction": false,
   "priority": "high|medium|low",
   "cat": "Work|Personal|Health"
 }
-directAction true = clear simple intent (buy milk, call dentist tomorrow, team meeting friday).
-directAction false = ambiguous, complex, idea, reflection, or needs thinking.
+IMPORTANT: directAction must be false for task and insight — user always reviews those in proposals.
+directAction true ONLY when type is reminder (clear time mentioned) or calendar (clear event and time).
 Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=idea.`,
         text
       );
@@ -1052,7 +1107,20 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
     setTab("tasks");
   }, []);
 
-  const dismissProposal = useCallback((id) => setProposals(prev => prev.filter(p => p.id !== id)), []);
+  const addNote = useCallback((text) => {
+    const now = new Date();
+    setNotes(prev => [{ id: Date.now(), text, ago: now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) }, ...prev]);
+  }, [setNotes]);
+
+  const deleteNote = useCallback((id) => setNotes(prev => prev.filter(n => n.id !== id)), [setNotes]);
+
+  const sendNoteToARIA = useCallback((note) => {
+    const id = Date.now();
+    const capture = { id, text: note.text, type: "text", ago: "Just now", tags: [] };
+    setCaptures(prev => [capture, ...prev]);
+    analyzeCapture(id, note.text);
+    setTab("captures");
+  }, [setCaptures, analyzeCapture]);
   const deleteCapture = useCallback((id) => {
     setCaptures(prev => prev.filter(c => c.id !== id));
     setProposals(prev => prev.filter(p => p.sourceId !== id));
@@ -1076,8 +1144,8 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-        {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} onApprove={approveProposal} onDismiss={dismissProposal} completionItems={completionItems} onDone={handleDone} onSnooze={handleSnooze} />}
-        {tab === "captures"  && <CapturesTab captures={captures} onDelete={deleteCapture} onEdit={setEditingCapture} />}
+        {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} notes={notes} onApprove={approveProposal} onDismiss={dismissProposal} completionItems={completionItems} onDone={handleDone} onSnooze={handleSnooze} />}
+        {tab === "captures"  && <CapturesTab captures={captures} notes={notes} onDelete={deleteCapture} onEdit={setEditingCapture} onDeleteNote={deleteNote} onSendNoteToARIA={sendNoteToARIA} />}
         {tab === "tasks"     && <TasksTab tasks={tasks} setTasks={setTasks} setUpcoming={setUpcoming} />}
         {tab === "proposals" && <ProposalsTab proposals={proposals} onApprove={approveProposal} onDismiss={dismissProposal} />}
         {tab === "upcoming"  && <UpcomingTab upcoming={upcoming} setUpcoming={setUpcoming} />}
@@ -1119,7 +1187,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
       )}
 
       {/* Text capture modal */}
-      {showTextCapture && <TextCaptureModal onClose={() => setShowTextCapture(false)} onSubmit={(text) => addCapture(text, "text")} />}
+      {showTextCapture && <TextCaptureModal onClose={() => setShowTextCapture(false)} onSubmit={(text) => addCapture(text, "text")} onSaveNote={addNote} />}
 
       {/* Edit capture modal */}
       {editingCapture && <EditCaptureModal capture={editingCapture} onSave={editCapture} onClose={() => setEditingCapture(null)} />}
