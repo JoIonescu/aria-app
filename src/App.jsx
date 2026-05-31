@@ -661,8 +661,29 @@ const HomeTab = ({ captures, tasks, proposals, upcoming, notes, onApprove, onDis
 };
 
 // ── Tab: Captures ─────────────────────────────────────────────────────────────
+// ── Edit Note Modal ───────────────────────────────────────────────────────────
+const EditNoteModal = ({ note, onSave, onClose }) => {
+  const [text, setText] = useState(note.text);
+  return (
+    <BottomSheet onClose={onClose}>
+      <div style={{ padding: "16px 20px 32px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <span style={{ fontFamily: F, fontSize: 16, fontWeight: 700, color: C.text }}>Edit note</span>
+          <button onClick={onClose} style={{ background: C.s2, border: `1px solid ${C.border}`, borderRadius: 6, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", color: C.sub, cursor: "pointer", fontSize: 16 }}>×</button>
+        </div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={5}
+          style={{ width: "100%", background: C.s2, border: `1px solid ${C.borderL}`, borderRadius: 10, padding: "12px 14px", fontFamily: F, fontSize: 14, color: C.text, resize: "none", lineHeight: 1.6, marginBottom: 12 }} />
+        <button onClick={() => { onSave(note.id, text.trim()); onClose(); }} disabled={!text.trim()}
+          style={{ width: "100%", padding: "13px", background: text.trim() ? C.accent : C.s3, border: "none", borderRadius: 10, fontFamily: F, fontSize: 13, fontWeight: 700, color: text.trim() ? "#fff" : C.dim, cursor: text.trim() ? "pointer" : "default" }}>
+          save note →
+        </button>
+      </div>
+    </BottomSheet>
+  );
+};
+
 // ── Note Card ─────────────────────────────────────────────────────────────────
-const NoteCard = ({ note, onDelete, onSendToARIA }) => (
+const NoteCard = ({ note, onDelete, onSendToARIA, onEdit }) => (
   <SwipeableRow onDelete={() => onDelete(note.id)}>
     <div style={{ padding: "14px 20px", background: C.s1, display: "flex", gap: 12, alignItems: "flex-start" }}>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
@@ -671,9 +692,9 @@ const NoteCard = ({ note, onDelete, onSendToARIA }) => (
           <span style={{ fontFamily: F, fontSize: 9, fontWeight: 700, color: C.purple, letterSpacing: "0.05em" }}>NOTE</span>
         </div>
       </div>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, cursor: "pointer" }} onClick={() => onEdit(note)}>
         <div style={{ fontFamily: F, fontSize: 14, color: C.text, lineHeight: 1.6 }}>{note.text}</div>
-        <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 4 }}>{note.ago}</div>
+        <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 4 }}>{note.ago} · tap to edit</div>
       </div>
       <button onClick={() => onSendToARIA(note)}
         style={{ background: C.purpleL, border: `1px solid ${C.purple}33`, borderRadius: 8, padding: "6px 10px", fontFamily: F, fontSize: 11, fontWeight: 700, color: C.purple, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -683,7 +704,7 @@ const NoteCard = ({ note, onDelete, onSendToARIA }) => (
   </SwipeableRow>
 );
 
-const CapturesTab = ({ captures, notes, onDelete, onEdit, onDeleteNote, onSendNoteToARIA }) => (
+const CapturesTab = ({ captures, notes, onDelete, onEdit, onDeleteNote, onSendNoteToARIA, onEditNote }) => (
   <div style={{ animation: "fadeUp 0.3s ease" }}>
     <SectionLabel label="Captures" count={captures.length} />
     {captures.length === 0
@@ -721,7 +742,7 @@ const CapturesTab = ({ captures, notes, onDelete, onEdit, onDeleteNote, onSendNo
       <SectionLabel label="Notes" count={notes.length} />
       {notes.map((n, i) => (
         <div key={n.id}>
-          <NoteCard note={n} onDelete={onDeleteNote} onSendToARIA={onSendNoteToARIA} />
+          <NoteCard note={n} onDelete={onDeleteNote} onSendToARIA={onSendNoteToARIA} onEdit={onEditNote} />
           {i < notes.length - 1 && <Divider />}
         </div>
       ))}
@@ -935,7 +956,7 @@ export default function App() {
     }
   }, []);
   const [showTextCapture, setShowTextCapture] = useState(false);
-  const [editingCapture, setEditingCapture] = useState(null);
+  const [editingNote, setEditingNote] = useState(null);
 
   const setTasks = useCallback((v) => { setTasksRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_tasks", n); return n; }); }, []);
   const setProposals = useCallback((v) => { setProposalsRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_proposals", n); return n; }); }, []);
@@ -1113,6 +1134,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
   }, [setNotes]);
 
   const deleteNote = useCallback((id) => setNotes(prev => prev.filter(n => n.id !== id)), [setNotes]);
+  const editNote = useCallback((id, text) => setNotes(prev => prev.map(n => n.id === id ? { ...n, text } : n)), [setNotes]);
 
   const sendNoteToARIA = useCallback((note) => {
     const id = Date.now();
@@ -1147,7 +1169,7 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {tab === "home"      && <HomeTab captures={captures} tasks={tasks} proposals={proposals} upcoming={upcoming} notes={notes} onApprove={approveProposal} onDismiss={dismissProposal} completionItems={completionItems} onDone={handleDone} onSnooze={handleSnooze} />}
-        {tab === "captures"  && <CapturesTab captures={captures} notes={notes} onDelete={deleteCapture} onEdit={setEditingCapture} onDeleteNote={deleteNote} onSendNoteToARIA={sendNoteToARIA} />}
+        {tab === "captures"  && <CapturesTab captures={captures} notes={notes} onDelete={deleteCapture} onEdit={setEditingCapture} onDeleteNote={deleteNote} onSendNoteToARIA={sendNoteToARIA} onEditNote={setEditingNote} />}
         {tab === "tasks"     && <TasksTab tasks={tasks} setTasks={setTasks} setUpcoming={setUpcoming} />}
         {tab === "proposals" && <ProposalsTab proposals={proposals} onApprove={approveProposal} onDismiss={dismissProposal} />}
         {tab === "upcoming"  && <UpcomingTab upcoming={upcoming} setUpcoming={setUpcoming} />}
@@ -1187,6 +1209,8 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
           }}
         />
       )}
+
+      {editingNote && <EditNoteModal note={editingNote} onSave={editNote} onClose={() => setEditingNote(null)} />}
 
       {/* Text capture modal */}
       {showTextCapture && <TextCaptureModal onClose={() => setShowTextCapture(false)} onSubmit={(text) => addCapture(text, "text")} onSaveNote={addNote} />}
