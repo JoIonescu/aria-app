@@ -1121,6 +1121,8 @@ Types: task=action needed, reminder=time alert, calendar=event/meeting, insight=
     analyzeCapture(id, note.text);
     setTab("captures");
   }, [setCaptures, analyzeCapture]);
+
+  const dismissProposal = useCallback((id) => setProposals(prev => prev.filter(p => p.id !== id)), [setProposals]);
   const deleteCapture = useCallback((id) => {
     setCaptures(prev => prev.filter(c => c.id !== id));
     setProposals(prev => prev.filter(p => p.sourceId !== id));
