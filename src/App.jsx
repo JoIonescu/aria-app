@@ -957,6 +957,7 @@ export default function App() {
   }, []);
   const [showTextCapture, setShowTextCapture] = useState(false);
   const [editingNote, setEditingNote] = useState(null);
+  const [editingCapture, setEditingCapture] = useState(null);
 
   const setTasks = useCallback((v) => { setTasksRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_tasks", n); return n; }); }, []);
   const setProposals = useCallback((v) => { setProposalsRaw(p => { const n = typeof v === "function" ? v(p) : v; save("aria_proposals", n); return n; }); }, []);
